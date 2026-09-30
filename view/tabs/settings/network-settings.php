@@ -1,0 +1,217 @@
+<?php
+// phpcs:disable WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound
+if ( ! defined( 'ABSPATH' ) ) {
+	exit; // Exit if accessed directly
+}
+?>
+<div id="tab-network-settings" data-prefix="wposes" class="wposes-tab wposes-content">
+
+	<h3><?php esc_html_e( 'Network Settings', 'wp-offload-ses' ); ?></h3>
+
+	<form id="wposes-network-settings-form" method="post">
+		<input type="hidden" name="action" value="save_override_network_settings"/>
+		<input type="hidden" name="plugin" value="<?php echo esc_attr( $this->get_plugin_slug() ); ?>"/>
+		<input type="hidden" name="completed-setup" value="1"/>
+		<?php wp_nonce_field( $this->get_settings_nonce_key(), 'wposes_override_network_settings' ); ?>
+
+		<table class="form-table">
+			<?php $args = $this->settings->get_setting_args( 'override-network-settings' ); ?>
+			<tr class="<?php echo esc_attr( $args['tr_class'] ); ?>">
+				<td>
+					<?php $this->render_view( 'elements/checkbox', $args ); ?>
+				</td>
+				<td>
+					<?php echo wp_kses_post( $args['setting_msg'] ); ?>
+					<h4><?php esc_html_e( 'Override Network Settings', 'wp-offload-ses' ); ?></h4>
+					<p>
+						<?php esc_html_e( 'Override the below network settings for this subsite.', 'wp-offload-ses' ); ?>
+					</p>
+				</td>
+			</tr>
+		</table>
+
+		<table id="wposes-network-settings-table" class="wp-list-table widefat fixed striped">
+			<thead>
+			<tr>
+				<th><?php esc_html_e( 'Network Setting', 'wp-offload-ses' ); ?></th>
+				<th><?php esc_html_e( 'Value', 'wp-offload-ses' ); ?></th>
+			</tr>
+			</thead>
+			<tbody>
+			<tr>
+				<td><?php esc_html_e( 'Send via SES', 'wp-offload-ses' ); ?></td>
+				<td>
+					<?php
+					if ( $this->settings->get_network_setting( 'send-via-ses', false ) ) {
+						echo wp_kses_post( '<span class="dashicons dashicons-yes"></span>' );
+					} else {
+						echo wp_kses_post( '<span class="dashicons dashicons-no-alt"></span>' );
+					}
+					?>
+				</td>
+			</tr>
+			<tr>
+				<td><?php esc_html_e( 'Enqueue Only', 'wp-offload-ses' ); ?></td>
+				<td>
+					<?php
+					if ( $this->settings->get_network_setting( 'enqueue-only', false ) ) {
+						echo wp_kses_post( '<span class="dashicons dashicons-yes"></span>' );
+					} else {
+						echo wp_kses_post( '<span class="dashicons dashicons-no-alt"></span>' );
+					}
+					?>
+				</td>
+			</tr>
+			<tr>
+				<td><?php esc_html_e( 'Enable Open Tracking', 'wp-offload-ses' ); ?></td>
+				<td>
+					<?php
+					if ( $this->settings->get_network_setting( 'enable-open-tracking', false ) ) {
+						echo wp_kses_post( '<span class="dashicons dashicons-yes"></span>' );
+					} else {
+						echo wp_kses_post( '<span class="dashicons dashicons-no-alt"></span>' );
+					}
+					?>
+				</td>
+			</tr>
+			<tr>
+				<td><?php esc_html_e( 'Enable Click Tracking', 'wp-offload-ses' ); ?></td>
+				<td>
+					<?php
+					if ( $this->settings->get_network_setting( 'enable-click-tracking', false ) ) {
+						echo wp_kses_post( '<span class="dashicons dashicons-yes"></span>' );
+					} else {
+						echo wp_kses_post( '<span class="dashicons dashicons-no-alt"></span>' );
+					}
+					?>
+				</td>
+			</tr>
+			<tr>
+				<td><?php esc_html_e( 'Email Sending Health Report', 'wp-offload-ses' ); ?></td>
+				<td>
+					<?php
+					if ( $this->settings->get_network_setting( 'enable-health-report', false ) ) {
+						$hr_enabled = true;
+						echo wp_kses_post( '<span class="dashicons dashicons-yes"></span>' );
+					} else {
+						$hr_enabled = false;
+						echo wp_kses_post( '<span class="dashicons dashicons-no-alt"></span>' );
+					}
+					?>
+				</td>
+			</tr>
+			<?php if ( $hr_enabled ) : ?>
+				<tr>
+					<td><?php esc_html_e( 'Health Report Frequency', 'wp-offload-ses' ); ?></td>
+					<td>
+						<?php
+						$frequency   = $this->settings->get_network_setting( 'health-report-frequency', 'weekly' );
+						$frequencies = $this->get_health_report()->get_available_frequencies();
+
+						if ( isset( $frequencies[ $frequency ] ) ) {
+							echo esc_html( $frequencies[ $frequency ] );
+						}
+						?>
+					</td>
+				</tr>
+				<tr>
+					<td><?php esc_html_e( 'Health Report Recipients', 'wp-offload-ses' ); ?></td>
+					<td>
+						<?php
+						$custom_recipients = false;
+						if (
+							'custom' === $this->settings->get_network_setting( 'health-report-recipients', 'custom' )
+						) {
+							$custom_recipients = true;
+							esc_html_e( 'Custom', 'wp-offload-ses' );
+						} else {
+							esc_html_e( 'Site Admins', 'wp-offload-ses' );
+						}
+						?>
+					</td>
+				</tr>
+				<?php if ( $custom_recipients ) : ?>
+					<tr>
+						<td><?php esc_html_e( 'Health Report Custom Recipients', 'wp-offload-ses' ); ?></td>
+						<td>
+							<?php echo esc_html(
+								$this->settings->get_network_setting( 'health-report-custom-recipients', '' )
+							); ?>
+						</td>
+					</tr>
+				<?php endif; ?>
+			<?php endif; ?>
+			<tr>
+				<td><?php esc_html_e( 'Region', 'wp-offload-ses' ); ?></td>
+				<td>
+					<?php echo esc_html( $this->settings->get_network_setting( 'region', '' ) ); ?>
+				</td>
+			</tr>
+			<tr>
+				<td><?php esc_html_e( 'WordPress Notification Email', 'wp-offload-ses' ); ?></td>
+				<td>
+					<?php echo esc_html( $this->settings->get_network_setting( 'default-email', '' ) ); ?>
+				</td>
+			</tr>
+			<tr>
+				<td><?php esc_html_e( 'WordPress Notification Name', 'wp-offload-ses' ); ?></td>
+				<td>
+					<?php echo esc_html( $this->settings->get_network_setting( 'default-email-name', '' ) ); ?>
+				</td>
+			</tr>
+			<tr>
+				<td><?php esc_html_e( 'Reply To', 'wp-offload-ses' ); ?></td>
+				<td>
+					<?php echo esc_html( $this->settings->get_network_setting( 'reply-to', '' ) ); ?>
+				</td>
+			</tr>
+			<tr>
+				<td><?php esc_html_e( 'Return Path', 'wp-offload-ses' ); ?></td>
+				<td>
+					<?php echo esc_html( $this->settings->get_network_setting( 'return-path', '' ) ); ?>
+				</td>
+			</tr>
+			<tr>
+				<td><?php esc_html_e( 'Delete Logs', 'wp-offload-ses' ); ?></td>
+				<td>
+					<?php
+					echo esc_html( sprintf(
+						__( '%d days', 'wp-offload-ses' ),
+						(int) $this->settings->get_network_setting( 'log-duration', 90 )
+					) );
+					?>
+				</td>
+			</tr>
+			<tr>
+				<td><?php esc_html_e( 'Instantly Remove Successfully Sent Emails From The Log', 'wp-offload-ses' ); ?></td>
+				<td>
+					<?php
+					if ( $this->settings->get_network_setting( 'delete-successful', false ) ) {
+						echo wp_kses_post( '<span class="dashicons dashicons-yes"></span>' );
+					} else {
+						echo wp_kses_post( '<span class="dashicons dashicons-no-alt"></span>' );
+					}
+					?>
+				</td>
+			</tr>
+			<?php if ( $this->is_pro() ) { ?>
+				<tr>
+					<td><?php esc_html_e( 'Remove Successfully Re-sent Failed Emails From The Log', 'wp-offload-ses' ); ?></td>
+					<td>
+						<?php
+						if ( $this->settings->get_network_setting( 'delete-re-sent-failed', false ) ) {
+							echo wp_kses_post( '<span class="dashicons dashicons-yes"></span>' );
+						} else {
+							echo wp_kses_post( '<span class="dashicons dashicons-no-alt"></span>' );
+						}
+						?>
+					</td>
+				</tr>
+			<?php } ?>
+			</tbody>
+		</table>
+
+		<button type="submit" class="button button-primary"><?php esc_html_e( 'Save changes', 'wp-offload-ses' ); ?></button>
+
+	</form>
+</div>

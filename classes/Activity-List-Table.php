@@ -1,0 +1,721 @@
+<?php
+/**
+ * Displays the WP Offload SES activity list table.
+ *
+ * @package WP Offload SES
+ * @author  Delicious Brains
+ */
+
+namespace DeliciousBrains\WP_Offload_SES;
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+use DeliciousBrains\WP_Offload_SES\WP_Offload_SES;
+use DeliciousBrains\WP_Offload_SES\Utils;
+
+// TODO: we may want to include our own version of this class.
+if ( ! class_exists( '\WP_List_Table' ) ) {
+	require_once( ABSPATH . '/wp-admin/includes/wp-list-table.php' );
+}
+
+/**
+ * Class Activity_List_Table
+ *
+ * @since 1.0.0
+ */
+class Activity_List_Table extends \WP_List_Table {
+
+	/**
+	 * The WordPress database object.
+	 *
+	 * @var \WPDB
+	 */
+	private $database;
+
+	/**
+	 * The emails table.
+	 *
+	 * @var string
+	 */
+	private $emails_table;
+
+	/**
+	 * Constructs the Activity_List_Table class.
+	 */
+	public function __construct() {
+		global $wpdb;
+
+		// Set the current screen if doing AJAX to prevent notices.
+		if ( defined( 'DOING_AJAX' ) && DOING_AJAX ) {
+			set_current_screen( 'options-general' );
+		}
+
+		$this->screen       = get_current_screen();
+		$this->database     = $wpdb;
+		$this->emails_table = $this->database->base_prefix . 'oses_emails';
+		$this->items        = [];
+
+		/**
+		 * Construct the WP_List_Table parent class.
+		 *
+		 * @param array
+		 */
+		parent::__construct(
+			array(
+				'singular' => 'activity',
+				'plural'   => 'activity',
+				'ajax'     => true,
+				'screen'   => $this->screen,
+			)
+		);
+	}
+
+	/**
+	 * Get the column names for the table.
+	 *
+	 * @return array
+	 */
+	public function get_columns() {
+		$columns = array(
+			'cb'        => '<input type="checkbox" />',
+			'date'      => __( 'Date', 'wp-offload-ses' ),
+			'subject'   => __( 'Subject', 'wp-offload-ses' ),
+			'recipient' => __( 'Recipient', 'wp-offload-ses' ),
+			'status'    => __( 'Status', 'wp-offload-ses' ),
+		);
+
+		return $columns;
+	}
+
+	/**
+	 * Get the sortable columns.
+	 *
+	 * @return array
+	 */
+	public function get_sortable_columns() {
+		$sortable_columns = array(
+			'date'      => array( 'date', false ),
+			'subject'   => array( 'subject', false ),
+			'recipient' => array( 'recipient', false ),
+			'status'    => array( 'status', false ),
+		);
+
+		return $sortable_columns;
+	}
+
+	/**
+	 * Return the individual data for each column.
+	 *
+	 * @param array  $item        The email data.
+	 * @param string $column_name The column to display.
+	 *
+	 * @return string
+	 */
+	public function column_default( $item, $column_name ) {
+		return $item[ $column_name ];
+	}
+
+	/**
+	 * Handles the checkbox column output.
+	 *
+	 * @param array $email The array of info about the email.
+	 */
+	public function column_cb( $email ) {
+		$id = esc_attr( $email['id'] );
+		?>
+		<input id="cb-select-<?php echo esc_attr( $id ); ?>" type="checkbox" name="email[]" value="<?php echo esc_attr( $id ); ?>"/>
+		<?php
+	}
+
+	/**
+	 * Handles the date column output.
+	 *
+	 * @param array $email The array of info about the email.
+	 */
+	public function column_date( $email ) {
+		$formatted = Utils::get_date_and_time( $email['date'] );
+
+		if ( ! $formatted ) {
+			return false;
+		}
+
+		return $formatted['date'] . '<br>' . $formatted['time'];
+	}
+
+	/**
+	 * Handles the subject output.
+	 *
+	 * @param array $email The array of info about the email.
+	 */
+	public function column_subject( $email ) {
+		global $wp_offload_ses;
+
+		$subject = esc_html( $email['subject'] );
+		$actions = $wp_offload_ses->get_email_action_links( $email['id'], $email['status'] );
+
+		if ( $wp_offload_ses->is_pro() ) {
+			$subject = '<a href="#activity" class="wposes-view-email wposes-subject-link" data-email="' . esc_attr( $email['id'] ) . '">' . $subject . '</a>';
+		}
+
+		return $subject . $this->row_actions( $actions );
+	}
+
+	/**
+	 * Handles the recipient output.
+	 *
+	 * @param array $email The array of info about the email.
+	 */
+	public function column_recipient( $email ) {
+		$email['recipient'] = Utils::maybe_unserialize( $email['recipient'] );
+
+		if ( is_array( $email['recipient'] ) ) {
+			return esc_html( implode( ', ', $email['recipient'] ) );
+		}
+
+		return esc_html( $email['recipient'] );
+	}
+
+	/**
+	 * Handles the status output.
+	 *
+	 * @param array $email The array of info about the email.
+	 */
+	public function column_status( $email ) {
+		global $wp_offload_ses;
+
+		return wp_kses(
+			sprintf(
+				'<span class="email-status-%s">%s</span>',
+				esc_attr( $email['status'] ),
+				esc_html( $wp_offload_ses->get_email_status_i18n( $email['status'] ) )
+			),
+			array( 'span' => array( 'class' => array() ) )
+		);
+	}
+
+	/**
+	 * Gets the total number of items in the table.
+	 *
+	 * @return int
+	 */
+	public function get_total_items() {
+		static $total_items = -1;
+
+		if (-1 !== $total_items) {
+			return $total_items;
+		}
+
+		$where       = $this->get_where();
+		$query       = "SELECT COUNT(*) AS total_items
+						FROM $this->emails_table
+						$where";
+		$total_items = $this->database->get_var($query);
+
+		if (empty($total_items)) {
+			$total_items = 0;
+		}
+
+		return $total_items;
+	}
+
+	/**
+	 * Override's standard has_items so that search controls are enabled
+	 * if there are some records we can async fetch after init without data.
+	 *
+	 * @return bool
+	 */
+	public function has_items() {
+		return parent::has_items() || 0 !== $this->get_total_items();
+	}
+
+	/**
+	 * Gets the orderby used in SQL.
+	 *
+	 * @return string
+	 */
+	public function get_orderby() {
+		$orderby = 'date';
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only table sorting parameter, sanitized
+		$req_orderby = isset( $_REQUEST['orderby'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['orderby'] ) ) : '';
+
+		if ( $req_orderby && in_array( $req_orderby, array_keys( $this->get_sortable_columns() ), true ) ) {
+			$orderby = $req_orderby;
+		}
+
+		return $orderby;
+	}
+
+	/**
+	 * Gets the order used in SQL.
+	 *
+	 * @return string
+	 */
+	public function get_order() {
+		$order = 'DESC';
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only table sorting parameter, sanitized
+		if ( isset( $_REQUEST['order'] ) && 'asc' === sanitize_text_field( wp_unslash( $_REQUEST['order'] ) ) ) {
+			$order = 'ASC';
+		}
+
+		return $order;
+	}
+
+	/**
+	 * Get the WHERE used in SQL.
+	 *
+	 * @return string
+	 */
+	public function get_where() {
+		$where = array();
+
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- Read-only search/filter parameters, sanitized
+		$date      = ! empty( $_REQUEST['date'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['date'] ) ) : false;
+		$subject   = ! empty( $_REQUEST['subject'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['subject'] ) ) : false;
+		$recipient = ! empty( $_REQUEST['recipient'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['recipient'] ) ) : false;
+		$status    = ! empty( $_REQUEST['status'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['status'] ) ) : false;
+		// phpcs:enable
+
+		// Build the WHERE queries (we may be searching multiple things here).
+		if ( is_multisite() && ! Utils::is_network_admin() ) {
+			$subsite_id = get_current_blog_id();
+			$where[]    = $this->database->prepare( "($this->emails_table.subsite_id = %d)", $subsite_id );
+		}
+
+		if ( $date ) {
+			$year    = substr( $date, 0, 4 );
+			$month   = substr( $date, 4 );
+			$start   = strtotime( "$month/01/$year" );
+			$end     = strtotime( "$month/01/$year 1 month - 1 second" );
+			$where[] = $this->database->prepare( 'email_created BETWEEN FROM_UNIXTIME(%s) AND FROM_UNIXTIME(%s)', $start, $end );
+		}
+
+		if ( $subject ) {
+			$subject = '%' . $this->database->esc_like( stripslashes( $subject ) ) . '%';
+			$where[] = $this->database->prepare( "($this->emails_table.email_subject LIKE %s)", $subject );
+		}
+
+		if ( $recipient ) {
+			$recipient = '%' . $this->database->esc_like( $recipient ) . '%';
+			$where[]   = $this->database->prepare( "($this->emails_table.email_to LIKE %s)", $recipient );
+		}
+
+		if ( $status && 'all' !== $status ) {
+			$where[] = $this->database->prepare( 'email_status = %s', $status );
+		}
+
+		// Glue it all back together.
+		if ( ! empty( $where ) ) {
+			$where = 'WHERE ' . implode( ' AND ', $where );
+		} else {
+			$where = '';
+		}
+
+		return $where;
+	}
+
+	/**
+	 * Get the data used to populate the table.
+	 *
+	 * @param int $current_page The current page of the list table.
+	 * @param int $per_page     The number of items to return per page.
+	 *
+	 * @return array
+	 */
+	public function get_data( $current_page, $per_page ) {
+		$offset  = ( $current_page - 1 ) * $per_page;
+		$count   = $per_page;
+		$orderby = $this->get_orderby();
+		$order   = $this->get_order();
+		$where   = $this->get_where();
+
+		$query = "SELECT 
+					email_id AS `id`,
+					email_created AS `date`,
+					email_subject AS `subject`,
+					email_to AS `recipient`,
+					email_status AS `status`
+				FROM {$this->emails_table}
+				$where
+				ORDER BY $orderby $order
+				LIMIT $offset, $count";
+
+		return stripslashes_deep( $this->database->get_results( $query, ARRAY_A ) );
+	}
+
+	/**
+	 * Display the no items message
+	 */
+	public function no_items() {
+		esc_html_e( 'No emails found. Check back later!', 'wp-offload-ses' );
+	}
+
+	/**
+	 * Get the available bulk actions.
+	 *
+	 * @return array
+	 */
+	public function get_bulk_actions() {
+		return array(
+			'resend' => __( 'Send', 'wp-offload-ses' ),
+			'cancel' => __( 'Cancel', 'wp-offload-ses' ),
+			'delete' => __( 'Delete Permanently', 'wp-offload-ses' ),
+		);
+	}
+
+	/**
+	 * Get the views.
+	 *
+	 * @return array|bool
+	 */
+	public function get_views() {
+		$where = '';
+
+		if ( is_multisite() && ! Utils::is_network_admin() ) {
+			$subsite_id = get_current_blog_id();
+			$where      = $this->database->prepare( "WHERE $this->emails_table.subsite_id = %d", $subsite_id );
+		}
+
+		$query = "SELECT
+					email_status,
+					COUNT(*) AS num_emails
+				FROM {$this->emails_table}
+				$where
+				GROUP BY email_status";
+
+		$results = $this->database->get_results( $query, ARRAY_A );
+		$total   = array_sum( wp_list_pluck( $results, 'num_emails' ) );
+
+		if ( 0 === $total ) {
+			return false;
+		}
+
+		$views['all'] = wp_kses( sprintf( __( 'All %s', 'wp-offload-ses' ), '<span class="count">(' . $total . ')</span>' ), array( 'span' => array( 'class' => array() ) ) );
+
+		foreach ( $results as $row ) {
+			$status = $row['email_status'];
+			$count  = '<span class="count">(' . $row['num_emails'] . ')</span>';
+
+			if ( 'sent' === $status ) {
+				$views['sent'] = wp_kses( sprintf( __( 'Sent %s', 'wp-offload-ses' ), $count ), array( 'span' => array( 'class' => array() ) ) );
+			}
+
+			if ( 'failed' === $status ) {
+				$views['failed'] = wp_kses( sprintf( __( 'Failed %s', 'wp-offload-ses' ), $count ), array( 'span' => array( 'class' => array() ) ) );
+			}
+
+			if ( 'queued' === $status ) {
+				$views['queued'] = wp_kses( sprintf( __( 'Queued %s', 'wp-offload-ses' ), $count ), array( 'span' => array( 'class' => array() ) ) );
+			}
+
+			if ( 'cancelled' === $status ) {
+				$views['cancelled'] = wp_kses( sprintf( __( 'Cancelled %s', 'wp-offload-ses' ), $count ), array( 'span' => array( 'class' => array() ) ) );
+			}
+		}
+
+		return $views;
+	}
+
+	/**
+	 * Display the list of views available on this table.
+	 *
+	 * @since 3.1.0
+	 */
+	public function render_views() {
+		$views = $this->get_views();
+
+		if ( ! $views ) {
+			return;
+		}
+
+		/**
+		 * Filters the list of available list table views.
+		 *
+		 * The dynamic portion of the hook name, `$this->screen->id`, refers
+		 * to the ID of the current screen, usually a string.
+		 *
+		 * @param string[] $views An array of available list table views.
+		 *
+		 * @since 3.5.0
+		 *
+		 */
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- WP core hook from WP_List_Table.
+		$views = apply_filters( "views_{$this->screen->id}", $views );
+		if ( empty( $views ) ) {
+			return;
+		}
+		$this->screen->render_screen_reader_content( 'heading_views' );
+
+		echo "<ul class='subsubsub'>\n";
+		foreach ( $views as $class => $view ) {
+			// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only filter parameter, sanitized
+			if ( isset( $_REQUEST['status'] ) ) {
+				// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only filter parameter, sanitized
+				$current = esc_attr( sanitize_text_field( wp_unslash( $_REQUEST['status'] ) ) );
+			} else {
+				$current = 'all';
+			}
+
+			$current         = ( $current === $class ) ? 'current' : '';
+			$views[ $class ] = "\t<li class='$class'><a href='#activity' class='$current' data-status='$class'>$view</a>";
+		}
+		echo wp_kses_post( implode( " |</li>\n", $views ) . "</li>\n" );
+		echo '</ul>';
+	}
+
+	/**
+	 * Set the necessary args for the table.
+	 */
+	public function prepare_items() {
+		$per_page              = 20;
+		$current_page          = $this->get_pagenum();
+		$columns               = $this->get_columns();
+		$hidden                = array();
+		$sortable              = $this->get_sortable_columns();
+		$this->_column_headers = array($columns, $hidden, $sortable);
+		$total_items           = $this->get_total_items();
+
+		// Only get data when doing AJAX, otherwise just let nav init.
+		if (defined('DOING_AJAX') && DOING_AJAX) {
+			$this->items = $this->get_data($current_page, $per_page);
+		}
+
+		$this->set_pagination_args(
+			array(
+				'total_items' => $total_items,
+				'per_page'    => $per_page,
+				'total_pages' => ceil($total_items / $per_page),
+				// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only table sorting parameter, sanitized
+				'orderby'     => ! empty($_REQUEST['orderby']) && '' !== $_REQUEST['orderby'] ? sanitize_text_field( wp_unslash( $_REQUEST['orderby'] ) ) : 'subject',
+				// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only table sorting parameter, sanitized
+				'order'       => ! empty($_REQUEST['order']) && '' !== $_REQUEST['order'] ? sanitize_text_field( wp_unslash( $_REQUEST['order'] ) ) : 'desc',
+			)
+		);
+	}
+
+	/**
+	 * Display the bulk actions.
+	 */
+	public function bulk_actions( $which = 'top' ) {
+		if ( 'top' !== $which ) {
+			return;
+		}
+
+		parent::bulk_actions( 'top' );
+	}
+
+	/**
+	 * Process the bulk actions.
+	 *
+	 * @return string|bool
+	 */
+	public function process_bulk_actions() {
+		global $wp_offload_ses;
+
+		check_ajax_referer( 'wposes-activity-nonce', 'wposes_activity_nonce' );
+
+		$actions   = array( 'resend', 'cancel', 'delete', 'resend_failed' );
+		$processed = 0;
+		$errors    = 0;
+
+		if ( isset( $_REQUEST['bulk_action'] ) && in_array( sanitize_text_field( wp_unslash( $_REQUEST['bulk_action'] ) ), $actions, true ) ) {
+			$action = sanitize_text_field( wp_unslash( $_REQUEST['bulk_action'] ) );
+
+			if ( 'resend_failed' === $action ) {
+				$emails = $wp_offload_ses->get_email_log()->get_failed_email_ids();
+				$action = 'resend';
+			} elseif ( isset( $_REQUEST['bulk_selected'] ) ) {
+				$emails = array_map( 'absint', (array) wp_unslash( $_REQUEST['bulk_selected'] ) );
+			} else {
+				return false;
+			}
+
+			$method = $action . '_email';
+		} else {
+			return false;
+		}
+
+		foreach ( $emails as $email ) {
+			if ( ! $wp_offload_ses->$method( $email ) ) {
+				$errors++;
+				continue;
+			}
+			$processed++;
+		}
+
+		return $wp_offload_ses->get_email_action_notice( $action, $processed, $errors );
+	}
+
+	/**
+	 * Display the table.
+	 */
+	public function display() {
+		?>
+		<form id="wposes-activity-form" method="post">
+			<?php
+			wp_nonce_field( 'wposes-activity-nonce', 'wposes_activity_nonce' );
+
+			$order   = ! empty( $this->_pagination_args['order'] ) ? $this->_pagination_args['order'] : 'desc';
+			$orderby = ! empty( $this->_pagination_args['orderby'] ) ? $this->_pagination_args['orderby'] : 'date';
+
+			echo '<input type="hidden" id="order" name="order" value="' . esc_attr( $order ) . '" />';
+			echo '<input type="hidden" id="orderby" name="orderby" value="' . esc_attr( $orderby ) . '" />';
+
+			parent::display();
+			?>
+		</form>
+		<?php
+	}
+
+	/**
+	 * Override to display spinner when not AJAX request,
+	 * and "no rows" content if AJAX request and there aren't rows.
+	 *
+	 * @return void
+	 */
+	public function display_rows() {
+		if ( ! defined('DOING_AJAX') || ! DOING_AJAX) {
+			echo '<tr class="no-items"><td class="colspanchange" colspan="' . esc_attr( $this->get_column_count() ) . '">';
+			echo '<span data-wposes-activity-spinner class="spinner"></span>';
+			echo '</td></tr>';
+		} elseif (empty($this->items)) {
+			$this->no_items();
+		} else {
+			parent::display_rows();
+		}
+	}
+
+	/**
+	 * Displays the table nav.
+	 *
+	 * @param string $which Top or bottom.
+	 */
+	public function display_tablenav( $which = 'top' ) {
+		if ( ! $this->has_items() ) {
+			return;
+		}
+
+		parent::display_tablenav( $which );
+	}
+
+	/**
+	 * Display our custom search field.
+	 *
+	 * @param string $which Top or bottom.
+	 */
+	public function extra_tablenav( $which = 'top' ) {
+		if ( 'top' !== $which || ! $this->has_items() ) {
+			return;
+		}
+		?>
+		<div id="wposes-activity-actions" class="alignright actions">
+			<?php $this->email_months_dropdown(); ?>
+			<input id="wposes-subject-search" type="text" name="subject" placeholder="<?php esc_attr_e( 'All Subjects', 'wp-offload-ses' ); ?>"/>
+			<input id="wposes-recipient-search" type="text" name="recipient" placeholder="<?php esc_attr_e( 'All Recipients', 'wp-offload-ses' ); ?>"/>
+			<input type="submit" id="wposes-filter-btn" name="filter_action" class="button action" value="<?php esc_attr_e( 'Filter', 'wp-offload-ses' ); ?>"/>
+			<button type="button" class="button action wposes-resend-failed"><?php esc_html_e( 'Retry All Failed', 'wp-offload-ses' ); ?></button>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Display the date select dropdown.
+	 */
+	public function email_months_dropdown() {
+		global $wp_locale;
+
+		$months = $this->database->get_results(
+			"SELECT DISTINCT YEAR(email_created) AS year, MONTH(email_created) AS month
+			FROM {$this->emails_table}
+			ORDER BY email_created DESC"
+		);
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only filter parameter, sanitized with type casting
+		$m      = isset( $_GET['m'] ) ? (int) $_GET['m'] : 0;
+		?>
+		<select name="m" id="wposes-filter-by-date">
+			<option <?php selected( $m, 0 ); ?> value="0"><?php esc_html_e( 'All dates', 'wp-offload-ses' ); ?></option>
+			<?php
+			foreach ( $months as $arc_row ) {
+				if ( 0 === $arc_row->year ) {
+					continue;
+				}
+
+				$month = zeroise( $arc_row->month, 2 );
+				$year  = $arc_row->year;
+
+				printf(
+					"<option %s value='%s'>%s</option>\n",
+					selected( $m, $year . $month, false ),
+					esc_attr( $arc_row->year . $month ),
+					esc_html( sprintf( __( '%1$s %2$d' ), $wp_locale->get_month( $month ), $year ) )
+				);
+			}
+			?>
+		</select>
+		<?php
+	}
+
+	/**
+	 * Display the table over AJAX.
+	 */
+	public function ajax_response() {
+		check_ajax_referer( 'wposes-activity-nonce', 'wposes_activity_nonce' );
+
+		$bulk_actions_result = $this->process_bulk_actions();
+
+		$this->prepare_items();
+
+		extract( $this->_args );
+		extract( $this->_pagination_args, EXTR_SKIP );
+
+		ob_start();
+		if ( ! empty( $_REQUEST['no_placeholder'] ) ) {
+			$this->display_rows();
+		} else {
+			$this->display_rows_or_placeholder();
+		}
+		$rows = ob_get_clean();
+
+		ob_start();
+		$this->print_column_headers();
+		$headers = ob_get_clean();
+
+		ob_start();
+		$this->pagination( 'top' );
+		$pagination_top = ob_get_clean();
+
+		ob_start();
+		$this->pagination( 'bottom' );
+		$pagination_bottom = ob_get_clean();
+
+		ob_start();
+		$this->render_views();
+		$views = ob_get_clean();
+
+		$response                         = array( 'rows' => $rows );
+		$response['pagination']['top']    = $pagination_top;
+		$response['pagination']['bottom'] = $pagination_bottom;
+		$response['column_headers']       = $headers;
+		$response['views']                = $views;
+
+		if ( isset( $total_items ) ) {
+			$response['total_items_i18n'] = esc_html( sprintf( _n( '1 item', '%s items', $total_items ), number_format_i18n( $total_items ) ) );
+		}
+
+		if ( isset( $total_pages ) ) {
+			$response['total_pages']      = $total_pages;
+			$response['total_pages_i18n'] = number_format_i18n( $total_pages );
+		}
+
+		$response['bulk_actions_result'] = '';
+		if ( $bulk_actions_result ) {
+			$response['bulk_actions_result'] = $bulk_actions_result;
+		}
+
+		die( wp_json_encode( $response ) );
+	}
+
+}

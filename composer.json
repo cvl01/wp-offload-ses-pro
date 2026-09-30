@@ -1,0 +1,15 @@
+{
+    "name": "cvl01/wp-offload-ses-pro",
+    "description": "Send WordPress email through Amazon SES with logging, queueing, retries, and reporting.",
+    "type": "wordpress-plugin",
+    "license": "GPL-2.0-or-later",
+    "require": {
+        "php": ">=8.1"
+    },
+    "extra": {
+        "installer-name": "wp-offload-ses"
+    },
+    "support": {
+        "source": "https://github.com/cvl01/wp-offload-ses-pro"
+    }
+}
