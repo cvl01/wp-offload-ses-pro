@@ -42,6 +42,13 @@ class Activity_List_Table extends \WP_List_Table {
 	private $emails_table;
 
 	/**
+	 * The queue failures table.
+	 *
+	 * @var string
+	 */
+	private $failures_table;
+
+	/**
 	 * Constructs the Activity_List_Table class.
 	 */
 	public function __construct() {
@@ -55,6 +62,7 @@ class Activity_List_Table extends \WP_List_Table {
 		$this->screen       = get_current_screen();
 		$this->database     = $wpdb;
 		$this->emails_table = $this->database->base_prefix . 'oses_emails';
+		$this->failures_table = $this->database->base_prefix . 'oses_failures';
 		$this->items        = [];
 
 		/**
@@ -192,7 +200,7 @@ class Activity_List_Table extends \WP_List_Table {
 				esc_html( $wp_offload_ses->get_email_status_i18n( $email['status'] ) )
 			),
 			array( 'span' => array( 'class' => array() ) )
-		);
+		) . ( ! empty( $email['failure_error'] ) ? '<br><small>' . esc_html__( 'Error:', 'wp-offload-ses' ) . ' ' . esc_html( $email['failure_error'] ) . '</small>' : '' );
 	}
 
 	/**
@@ -337,7 +345,14 @@ class Activity_List_Table extends \WP_List_Table {
 					email_created AS `date`,
 					email_subject AS `subject`,
 					email_to AS `recipient`,
-					email_status AS `status`
+					email_status AS `status`,
+					(
+						SELECT failures.error
+						FROM {$this->failures_table} failures
+						WHERE failures.job LIKE CONCAT('%s:8:\"email_id\";i:', {$this->emails_table}.email_id, ';%')
+						ORDER BY failures.failed_at DESC
+						LIMIT 1
+					) AS `failure_error`
 				FROM {$this->emails_table}
 				$where
 				ORDER BY $orderby $order
