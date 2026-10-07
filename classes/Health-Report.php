@@ -66,6 +66,13 @@ class Health_Report {
 	protected $emails_table;
 
 	/**
+	 * The queue table used to store failed jobs.
+	 *
+	 * @var string
+	 */
+	protected $failures_table;
+
+	/**
 	 * The table used to store click data.
 	 *
 	 * @var string
@@ -95,6 +102,7 @@ class Health_Report {
 		$this->wposes          = $wp_offload_ses;
 		$this->emails_table    = $this->database->base_prefix . 'oses_emails';
 		$this->clicks_table    = $this->database->base_prefix . 'oses_clicks';
+		$this->failures_table  = $this->database->base_prefix . 'oses_failures';
 
 		$this->init( $this->cron_id );
 
@@ -686,7 +694,14 @@ class Health_Report {
 			"SELECT emails.email_id AS id,
 				emails.email_subject AS subject,
 				emails.email_created AS date,
-				emails.email_to AS recipient
+				emails.email_to AS recipient,
+				(
+					SELECT failures.error
+					FROM {$this->failures_table} failures
+					WHERE failures.job LIKE CONCAT('%%s:8:\"email_id\";i:', emails.email_id, ';%%')
+					ORDER BY failures.failed_at DESC
+					LIMIT 1
+				) AS failure_error
 			FROM {$this->emails_table} emails
 			WHERE emails.email_created >= %s
 			AND emails.email_created <= %s

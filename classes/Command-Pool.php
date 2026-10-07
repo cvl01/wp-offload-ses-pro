@@ -116,7 +116,9 @@ class Command_Pool {
 		$send_rate = 10;
 
 		if ( ! is_wp_error( $quota ) ) {
-			$send_rate = $quota['rate'];
+			// Use the raw API value. The formatted display value may contain
+			// locale-specific separators and must not be used for arithmetic.
+			$send_rate = $quota['MaxSendRate'];
 		}
 
 		$send_rate         = (int) apply_filters( 'wposes_max_concurrency', $send_rate );

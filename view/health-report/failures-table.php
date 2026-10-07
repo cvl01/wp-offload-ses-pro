@@ -61,6 +61,13 @@ use DeliciousBrains\WP_Offload_SES\Utils;
 						?>
 						</span>
 					</a>
+					<?php if ( ! empty( $email['failure_error'] ) ) : ?>
+						<br />
+						<span style="font-size: 11px; color: #b32d2e;">
+							<strong><?php esc_html_e( 'Error:', 'wp-offload-ses' ); ?></strong>
+							<?php echo esc_html( $email['failure_error'] ); ?>
+						</span>
+					<?php endif; ?>
 				</td>
 				<td style="padding: 8px 10px;" align="right" style="text-align: right;"><?php echo wp_kses_post( isset( $email['actions'] ) ? $email['actions'] : '' ); ?></td>
 			</tr>

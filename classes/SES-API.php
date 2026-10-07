@@ -160,7 +160,11 @@ class SES_API {
 		}
 
 		$quota      = $account['SendQuota'];
-		$percentage = ( $quota['SentLast24Hours'] / $quota['Max24HourSend'] ) * 100;
+		$percentage = 0;
+
+		if ( $quota['Max24HourSend'] > 0 ) {
+			$percentage = ( $quota['SentLast24Hours'] / $quota['Max24HourSend'] ) * 100;
+		}
 
 		$quota['used']  = round( $percentage );
 		$quota['limit'] = number_format_i18n( $quota['Max24HourSend'] );
